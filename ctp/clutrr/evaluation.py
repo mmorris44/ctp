@@ -9,6 +9,7 @@ from ctp.clutrr.base import Instance
 from ctp.util import make_batches
 
 from typing import Callable, List, Optional, Tuple, Any, Dict
+from tqdm import tqdm
 
 
 def accuracy(scoring_function: Callable[[List[Instance], List[str]], Tuple[Tensor, Any]],
@@ -31,7 +32,7 @@ def accuracy(scoring_function: Callable[[List[Instance], List[str]], Tuple[Tenso
 
     is_correct_lst = []
 
-    for batch_start, batch_end in batches:
+    for batch_start, batch_end in tqdm(batches, 'Evaluating'):
         batch = instances[batch_start:batch_end]
         batch_size = len(batch)
 

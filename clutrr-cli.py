@@ -31,6 +31,7 @@ from ctp.regularizers import N2, N3, Entropy
 from typing import List, Tuple, Dict, Optional
 
 import logging
+from tqdm import tqdm
 
 logger = logging.getLogger(os.path.basename(sys.argv[0]))
 np.set_printoptions(linewidth=256, precision=4, suppress=True, threshold=sys.maxsize)
@@ -512,7 +513,8 @@ def main(argv):
         nb_batches = len(batcher.batches)
         epoch_loss_values = []
 
-        for batch_no, (batch_start, batch_end) in enumerate(batcher.batches, start=1):
+        for batch_no, (batch_start, batch_end) in tqdm(enumerate(batcher.batches, start=1),
+                                                       f'Epoch {epoch_no}/{nb_epochs}'):
             global_step += 1
 
             indices_batch = batcher.get_batch(batch_start, batch_end)
@@ -554,7 +556,7 @@ def main(argv):
             optimizer.step()
             optimizer.zero_grad()
 
-            logger.info(f'Epoch {epoch_no}/{nb_epochs}\tBatch {batch_no}/{nb_batches}\tLoss {loss_value:.4f}')
+            #logger.info(f'Epoch {epoch_no}/{nb_epochs}\tBatch {batch_no}/{nb_batches}\tLoss {loss_value:.4f}')
 
             if evaluate_every_batches is not None:
                 if global_step % evaluate_every_batches == 0:
