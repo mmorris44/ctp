@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import sys
 
 import numpy as np
 
@@ -32,7 +33,7 @@ def accuracy(scoring_function: Callable[[List[Instance], List[str]], Tuple[Tenso
 
     is_correct_lst = []
 
-    for batch_start, batch_end in tqdm(batches, 'Evaluating'):
+    for batch_start, batch_end in tqdm(batches, 'Evaluating', file=sys.stdout):
         batch = instances[batch_start:batch_end]
         batch_size = len(batch)
 

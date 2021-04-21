@@ -514,7 +514,8 @@ def main(argv):
         epoch_loss_values = []
 
         for batch_no, (batch_start, batch_end) in tqdm(enumerate(batcher.batches, start=1),
-                                                       f'Epoch {epoch_no}/{nb_epochs}', total=len(batcher.batches)):
+                                                       f'Epoch {epoch_no}/{nb_epochs}', total=len(batcher.batches),
+                                                       file=sys.stdout):
             global_step += 1
 
             indices_batch = batcher.get_batch(batch_start, batch_end)
