@@ -506,7 +506,7 @@ def main(argv):
 
     global_step = 0
 
-    for epoch_no in tqdm(range(1, nb_epochs + 1), 'Training', file=sys.stdout, total=nb_epochs):
+    for epoch_no in range(1, nb_epochs + 1):
 
         training_set, is_simple = data.train, False
         if start_simple is not None and epoch_no <= start_simple:
@@ -519,7 +519,9 @@ def main(argv):
         nb_batches = len(batcher.batches)
         epoch_loss_values = []
 
-        for batch_no, (batch_start, batch_end) in enumerate(batcher.batches, start=1):
+        for batch_no, (batch_start, batch_end) in tqdm(enumerate(batcher.batches, start=1),
+                                                       f'Epoch {epoch_no}/{nb_epochs}',
+                                                       file=sys.stdout, total=nb_batches):
             global_step += 1
 
             indices_batch = batcher.get_batch(batch_start, batch_end)
@@ -564,7 +566,7 @@ def main(argv):
                 optimizer.step()
                 optimizer.zero_grad()
 
-            logger.info(f'Epoch {epoch_no}/{nb_epochs}\tBatch {batch_no}/{nb_batches}\tLoss {loss_value:.4f}')
+            #logger.info(f'Epoch {epoch_no}/{nb_epochs}\tBatch {batch_no}/{nb_batches}\tLoss {loss_value:.4f}')
 
             if evaluate_every_batches is not None:
                 if global_step % evaluate_every_batches == 0:
