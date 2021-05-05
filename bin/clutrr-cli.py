@@ -191,6 +191,8 @@ def main(argv):
                            choices=['static', 'linear', 'attentive', 'memory', 'ntp'])
     argparser.add_argument('--nb-rules', '-R', action='store', type=int, default=4)
 
+    argparser.add_argument('--gradient-accumulation-steps', action='store', type=int, default=1)
+
     argparser.add_argument('--GNTP-R', action='store', type=int, default=None)
 
     argparser.add_argument('--slope', '-S', action='store', type=float, default=None)
@@ -243,6 +245,8 @@ def main(argv):
     tnorm_name = args.tnorm
     reformulator_name = args.reformulator
     nb_rules = args.nb_rules
+
+    nb_gradient_accumulation_steps = args.gradient_accumulation_steps
 
     gntp_R = args.GNTP_R
 
@@ -464,7 +468,8 @@ def main(argv):
                            sample_size=sample_size,
                            relation_lst=test_predicate_lst if is_predicate else test_relation_lst,
                            batch_size=test_batch_size,
-                           relation_to_predicate=relation_to_predicate if is_predicate else None)
+                           relation_to_predicate=relation_to_predicate if is_predicate else None,
+                           is_debug=is_debug)
             logger.info(f'Test Accuracy on {path}: {res:.6f}')
         return res
 
@@ -546,13 +551,16 @@ def main(argv):
                     loss += entropy_weight * entropy_reg([attention])
 
             loss_value = loss.item()
-
             epoch_loss_values += [loss_value]
+
+            if nb_gradient_accumulation_steps > 1:
+                loss = loss / nb_gradient_accumulation_steps
 
             loss.backward()
 
-            optimizer.step()
-            optimizer.zero_grad()
+            if nb_gradient_accumulation_steps == 1 or global_step % nb_gradient_accumulation_steps == 0:
+                optimizer.step()
+                optimizer.zero_grad()
 
             logger.info(f'Epoch {epoch_no}/{nb_epochs}\tBatch {batch_no}/{nb_batches}\tLoss {loss_value:.4f}')
 
