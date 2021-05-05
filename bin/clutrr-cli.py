@@ -30,6 +30,8 @@ from ctp.regularizers import N2, N3, Entropy
 
 from typing import List, Tuple, Dict, Optional
 
+from tqdm import tqdm
+
 import logging
 
 logger = logging.getLogger(os.path.basename(sys.argv[0]))
@@ -504,7 +506,7 @@ def main(argv):
 
     global_step = 0
 
-    for epoch_no in range(1, nb_epochs + 1):
+    for epoch_no in tqdm(range(1, nb_epochs + 1), 'Training', file=sys.stdout, total=nb_epochs):
 
         training_set, is_simple = data.train, False
         if start_simple is not None and epoch_no <= start_simple:
