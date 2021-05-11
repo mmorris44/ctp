@@ -12,7 +12,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
+# Neural KB
 class BatchNeuralKB(nn.Module):
     def __init__(self,
                  kernel: BaseKernel,
@@ -26,8 +26,8 @@ class BatchNeuralKB(nn.Module):
     # Get score of ground relation from knowledge base of facts
     def score(self,
               rel: Tensor, arg1: Tensor, arg2: Tensor,  # Binary predicate, first entity, second entity
-              facts: List[Tensor],                      # List of facts
-              nb_facts: Tensor,                         # ?
+              facts: List[Tensor],                      # List of lists of facts (different facts for each batch)
+              nb_facts: Tensor,                         # Number of facts for each example in the batch
               entity_embeddings: Optional[Tensor] = None,
               nb_entities: Optional[Tensor] = None) -> Tensor:
         # Returns -> tensor across batch of scores
@@ -48,10 +48,10 @@ class BatchNeuralKB(nn.Module):
     # Get score of relation that might contain variables
     def forward(self,
                 rel: Tensor, arg1: Optional[Tensor], arg2: Optional[Tensor],        # 'None' entity == variable
-                facts: List[Tensor],                                                # List of facts
-                nb_facts: Tensor,                                                   # ?
+                facts: List[Tensor],                                                # List of lists of facts
+                nb_facts: Tensor,                                                   # Number of facts
                 entity_embeddings: Tensor,                                          # Entity embeddings
-                nb_entities: Tensor) -> Tuple[Optional[Tensor], Optional[Tensor]]:  # ?
+                nb_entities: Tensor) -> Tuple[Optional[Tensor], Optional[Tensor]]:  # Number of entities
         # Returns -> (score for first arg, score for second arg)
 
         # rel: [B, E], arg1: [B, E], arg2: [B, E]
@@ -59,7 +59,7 @@ class BatchNeuralKB(nn.Module):
         # entity_embeddings: [B, N, E] (XXX: need no. entities)
 
         # [B, F, 3E]
-        fact_emb = torch.cat(facts, dim=2)  # Get fact embeddings
+        fact_emb = torch.cat(facts, dim=2)  # Get fact embeddings from list of facts
 
         fact_emb, nb_facts = uniform(rel, fact_emb, nb_facts)
         entity_embeddings, nb_entities = uniform(rel, entity_embeddings, nb_entities)

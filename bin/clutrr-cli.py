@@ -345,7 +345,7 @@ def main(argv):
     hops_lst = [make_hop(s) for s in hops_str]
 
     encoder_model = model
-    if encoder_str is not None:
+    if encoder_str is not None:  # Does not seem to be used
         encoder_lst = [make_hop(s) for s in encoder_str]
         encoder_model = BatchHoppy(model=model, k=k_max, depth=1, tnorm_name=tnorm_name,
                                    hops_lst=encoder_lst, R=gntp_R).to(device)

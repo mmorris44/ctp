@@ -16,15 +16,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
+# Encoder model
 class BatchHoppy(nn.Module):
     def __init__(self,
-                 model: BatchNeuralKB,
-                 hops_lst: List[Tuple[BaseReformulator, bool]],
-                 k: int = 10,
-                 depth: int = 0,
-                 tnorm_name: str = 'min',
-                 R: Optional[int] = None):
+                 model: BatchNeuralKB,                              # Neural KB
+                 hops_lst: List[Tuple[BaseReformulator, bool]],     # List of rules (essentially)
+                 k: int = 10,                                       # k-max parameter. Select top k scores in r_hop()
+                 depth: int = 0,                                    # Depth to search before stopping
+                 tnorm_name: str = 'min',                           # How to calculate scores as a conjunction
+                 R: Optional[int] = None):                          # GNTP-R parameter from args?
         super().__init__()
 
         self.model: BatchNeuralKB = model
@@ -43,6 +43,7 @@ class BatchHoppy(nn.Module):
 
         logger.info(f'BatchHoppy(k={k}, depth={depth}, hops_lst={[h.__class__.__name__ for h in self._hops_lst]})')
 
+    # Conjunction of relations
     def _tnorm(self, x: Tensor, y: Tensor) -> Tensor:
         res = None
         if self.tnorm_name == 'min':
@@ -54,30 +55,33 @@ class BatchHoppy(nn.Module):
         assert res is not None
         return res
 
+    # Recursively expand relation
     def r_hop(self,
-              rel: Tensor, arg1: Optional[Tensor], arg2: Optional[Tensor],
-              facts: List[Tensor],
-              nb_facts: Tensor,
-              entity_embeddings: Tensor,
-              nb_entities: Tensor,
+              rel: Tensor, arg1: Optional[Tensor], arg2: Optional[Tensor],  # Predicate, first entity, second entity
+              facts: List[Tensor],                      # List of lists of facts (different facts for each batch)
+              nb_facts: Tensor,                         # Number of facts for each example in the batch
+              entity_embeddings: Tensor,                # Entity embeddings
+              nb_entities: Tensor,                      # Number of entities
               depth: int) -> Tuple[Tensor, Tensor]:
-        assert (arg1 is None) ^ (arg2 is None)
+        assert (arg1 is None) ^ (arg2 is None)  # XOR. Exactly one variable
         assert depth >= 0
 
         batch_size, embedding_size = rel.shape[0], rel.shape[1]
 
-        # [B, N]
+        # [B, N] - Batch, entity
+        # Get scores from expanding recursively (scores for arg1, arg2 respectively)
         scores_sp, scores_po = self.r_forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=depth)
         scores = scores_sp if arg2 is None else scores_po
 
-        k = min(self.k, scores.shape[1])
+        k = min(self.k, scores.shape[1])  # Ensure k within bounds of tensor
 
         # [B, K], [B, K]
-        z_scores, z_indices = torch.topk(scores, k=k, dim=1)
+        z_scores, z_indices = torch.topk(scores, k=k, dim=1)  # Get top k scores
 
         dim_1 = torch.arange(z_scores.shape[0], device=z_scores.device).view(-1, 1).repeat(1, k).view(-1)
         dim_2 = z_indices.view(-1)
 
+        # Get entity embeddings for top k scores
         entity_embeddings, _ = uniform(z_scores, entity_embeddings)
 
         z_emb = entity_embeddings[dim_1, dim_2].view(z_scores.shape[0], k, -1)
@@ -85,8 +89,10 @@ class BatchHoppy(nn.Module):
         assert z_emb.shape[0] == batch_size
         assert z_emb.shape[2] == embedding_size
 
+        # Return top k scores and corresponding entities
         return z_scores, z_emb
 
+    # Get score of relation using max depth of model
     def score(self,
               rel: Tensor, arg1: Tensor, arg2: Tensor,
               facts: List[Tensor],
@@ -96,6 +102,7 @@ class BatchHoppy(nn.Module):
         res = self.r_score(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=self.depth)
         return res
 
+    # Get max score of relation for up to given depth
     def r_score(self,
                 rel: Tensor, arg1: Tensor, arg2: Tensor,
                 facts: List[Tensor],
@@ -104,11 +111,12 @@ class BatchHoppy(nn.Module):
                 nb_entities: Tensor,
                 depth: int) -> Tensor:
         res = None
-        for d in range(depth + 1):
+        for d in range(depth + 1):  # Check up to max depth
             scores = self.depth_r_score(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=d)
-            res = scores if res is None else torch.max(res, scores)
+            res = scores if res is None else torch.max(res, scores)  # Maximize score across depth
         return res
 
+    # Get score of relation for given depth
     def depth_r_score(self,
                       rel: Tensor, arg1: Tensor, arg2: Tensor,
                       facts: List[Tensor],
@@ -118,7 +126,7 @@ class BatchHoppy(nn.Module):
                       depth: int) -> Tensor:
         assert depth >= 0
 
-        if depth == 0:
+        if depth == 0:  # If depth reached, call to neural KB for score
             return self.model.score(rel, arg1, arg2,
                                     facts=facts, nb_facts=nb_facts,
                                     entity_embeddings=entity_embeddings, nb_entities=nb_entities)
@@ -130,7 +138,7 @@ class BatchHoppy(nn.Module):
 
         new_hops_lst = self.hops_lst
 
-        if self.R is not None:
+        if self.R is not None:  # If number of reformulations specified?
             batch_rules_scores = torch.cat([h.prior(rel).view(-1, 1) for h, _ in self.hops_lst], 1)
             topk, indices = torch.topk(batch_rules_scores, self.R)
 
@@ -149,16 +157,18 @@ class BatchHoppy(nn.Module):
 
             new_hops_lst = []
             for i in range(new_rule_heads.shape[1]):
-                r = GNTPReformulator(kernel=kernel, head=new_rule_heads[:, i, :],
+                r = GNTPReformulator(kernel=kernel, head=new_rule_heads[:, i, :],  # Generates hops from relation?
                                      body=[new_rule_body1s[:, i, :], new_rule_body2s[:, i, :]])
                 new_hops_lst += [(r, False)]
 
+        # Iterate through rules
+        # is_reversed decides if the next sub-goal is in the form p(a, X) or p(X, a)
         for rule_idx, (hops_generator, is_reversed) in enumerate(new_hops_lst):
             sources, scores = arg1, None
 
             # XXX
             prior = hops_generator.prior(rel)
-            if prior is not None:
+            if prior is not None:  # Get a prior on the scores
 
                 if mask is not None:
                     prior = prior * mask[:, rule_idx]
@@ -167,9 +177,10 @@ class BatchHoppy(nn.Module):
 
                 scores = prior
 
-            hop_rel_lst = hops_generator(rel)
+            hop_rel_lst = hops_generator(rel)  # Generate hops from relation
             nb_hops = len(hop_rel_lst)
 
+            # For each hop in the hops to consider for the relation
             for hop_idx, hop_rel in enumerate(hop_rel_lst, start=1):
                 # [B * S, E]
                 sources_2d = sources.view(-1, embedding_size)
