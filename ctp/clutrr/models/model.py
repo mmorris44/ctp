@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 class BatchHoppy(nn.Module):
     def __init__(self,
                  model: BatchNeuralKB,                              # Neural KB
-                 hops_lst: List[Tuple[BaseReformulator, bool]],     # List of rules (essentially)
+                 hops_lst: List[Tuple[BaseReformulator, bool]],     # List of reformulators
+                 # Reformulator takes queries and reformulates into sub-queries
+                 # Each reformulator learns to reformulate all queries, but each only in one way
                  k: int = 10,                                       # k-max parameter. Select top k scores in r_hop()
                  depth: int = 0,                                    # Depth to search before stopping
                  tnorm_name: str = 'min',                           # How to calculate scores as a conjunction
@@ -46,7 +48,7 @@ class BatchHoppy(nn.Module):
     # Conjunction of relations
     def _tnorm(self, x: Tensor, y: Tensor) -> Tensor:
         res = None
-        if self.tnorm_name == 'min':
+        if self.tnorm_name == 'min':  # Default to use
             res = torch.min(x, y)
         elif self.tnorm_name == 'prod':
             res = x * y
@@ -91,6 +93,9 @@ class BatchHoppy(nn.Module):
 
         # Return top k scores and corresponding entities
         return z_scores, z_emb
+
+    # score() is for p(s,o) ground predicates
+    # forward() is for p(s, X) or p(X, o)
 
     # Get score of relation using max depth of model
     def score(self,
@@ -138,7 +143,7 @@ class BatchHoppy(nn.Module):
 
         new_hops_lst = self.hops_lst
 
-        if self.R is not None:  # If number of reformulations specified?
+        if self.R is not None:  # If number of reformulations specified? ---> IGNORE THIS BLOCK OF CODE
             batch_rules_scores = torch.cat([h.prior(rel).view(-1, 1) for h, _ in self.hops_lst], 1)
             topk, indices = torch.topk(batch_rules_scores, self.R)
 
@@ -161,12 +166,12 @@ class BatchHoppy(nn.Module):
                                      body=[new_rule_body1s[:, i, :], new_rule_body2s[:, i, :]])
                 new_hops_lst += [(r, False)]
 
-        # Iterate through rules
+        # Iterate through reformulators
         # is_reversed decides if the next sub-goal is in the form p(a, X) or p(X, a)
         for rule_idx, (hops_generator, is_reversed) in enumerate(new_hops_lst):
             sources, scores = arg1, None
 
-            # XXX
+            # XXX - IGNORE THIS FOR NOW
             prior = hops_generator.prior(rel)
             if prior is not None:  # Get a prior on the scores
 
@@ -177,7 +182,7 @@ class BatchHoppy(nn.Module):
 
                 scores = prior
 
-            hop_rel_lst = hops_generator(rel)  # Generate hops from relation
+            hop_rel_lst = hops_generator(rel)  # Generate hops from relation (using the reformulator)
             nb_hops = len(hop_rel_lst)
 
             # For each hop in the hops to consider for the relation

@@ -25,7 +25,7 @@ class BatchNeuralKB(nn.Module):
 
     # Get score of ground relation from knowledge base of facts
     def score(self,
-              rel: Tensor, arg1: Tensor, arg2: Tensor,  # Binary predicate, first entity, second entity
+              rel: Tensor, arg1: Tensor, arg2: Tensor,  # Binary predicate, first constant, second constant
               facts: List[Tensor],                      # List of lists of facts (different facts for each batch)
               nb_facts: Tensor,                         # Number of facts for each example in the batch
               entity_embeddings: Optional[Tensor] = None,
@@ -58,6 +58,9 @@ class BatchNeuralKB(nn.Module):
         # facts: [B, F, E]
         # entity_embeddings: [B, N, E] (XXX: need no. entities)
 
+        assert (arg1 is not None) or (arg2 is not None)  # At least one must be a constant
+        # If you want to answer p(s, o), call to score() instead
+
         # [B, F, 3E]
         fact_emb = torch.cat(facts, dim=2)  # Get fact embeddings from list of facts
 
@@ -67,7 +70,7 @@ class BatchNeuralKB(nn.Module):
         batch_size = rel.shape[0]
         embedding_size = rel.shape[1]
         entity_size = entity_embeddings.shape[1]
-        fact_size = fact_emb.shape[1]
+        fact_size = fact_emb.shape[1]  # Max number of facts in the batch
 
         # [B, N, F, 3E] - batch, entity, fact, 3 embeddings
         # Repeat facts across entity embeddings
@@ -82,6 +85,8 @@ class BatchNeuralKB(nn.Module):
         emb_bnfe = entity_embeddings.view(batch_size, entity_size, 1, embedding_size).repeat(1, 1, fact_size, 1)
 
         # [B, F]
+        # Binary mask: for each fact, whether the fact belongs to the query
+        # Basically just padding to get the tensor to the correct size
         fact_mask = torch.arange(fact_size, device=nb_facts.device)\
             .expand(batch_size, fact_size) < nb_facts.unsqueeze(1)
         # [B, N]

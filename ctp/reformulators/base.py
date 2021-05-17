@@ -15,6 +15,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# Reformulator takes query and reformulates it into sub-queries
+# Different ways to do this
+# CTP paper uses Linear, Memory, and Attentive
 class BaseReformulator(ABC, nn.Module):
     def __init__(self):
         super().__init__()
@@ -36,7 +39,7 @@ class BaseReformulator(ABC, nn.Module):
 
 class StaticReformulator(BaseReformulator):
     def __init__(self,
-                 nb_hops: int,
+                 nb_hops: int,  # Number of sub-queries to reformulate into
                  embedding_size: int,
                  init_name: Optional[str] = "uniform",
                  lower_bound: float = -1.0,
