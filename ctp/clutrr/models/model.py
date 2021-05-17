@@ -46,6 +46,8 @@ class BatchHoppy(nn.Module):
         self._hops_lst = nn.ModuleList([hops for hops, _ in hops_lst])
         self.hops_lst = hops_lst
 
+        self.reinforce_module = reinforce_module
+
         logger.info(f'BatchHoppy(k={k}, depth={depth}, hops_lst={[h.__class__.__name__ for h in self._hops_lst]})')
 
     # Conjunction of relations
@@ -170,6 +172,10 @@ class BatchHoppy(nn.Module):
                 new_hops_lst += [(r, False)]
 
         # TODO: choose which reformulator to use with REINFORCE
+        # [B, 3E] - B seems to be 576 with a batch size of 32 passed as a parameter
+        batch_emb = torch.cat([rel, arg1, arg2], dim=1)  # Embedding of predicate
+        action = self.reinforce_module.get_action(batch_emb)
+        # TODO: Big issue. Need to decide which reformulator to use on individual elements of the batch
 
         # Iterate through reformulators
         # is_reversed decides if the next sub-goal is in the form p(a, X) or p(X, a)

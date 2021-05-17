@@ -25,8 +25,8 @@ class PolicyEstimator:
             nn.Linear(16, self.n_outputs),
             nn.Softmax(dim=-1))
 
-    def predict(self, state):
-        action_probs = self.network(torch.FloatTensor(state))
+    def predict(self, state: torch.FloatTensor):
+        action_probs = self.network(state)
         return action_probs
 
 
@@ -38,9 +38,10 @@ class ReinforceModule:
 
     # Call to get action
     def get_action(self, state: Tensor):
-        action_probs = self.policy_estimator.predict(state).detach().numpy()
-        action = np.random.choice(self.env.action_space, p=action_probs)
-        return action
+        action_probs = self.policy_estimator.predict(state).detach().cpu().numpy()
+        action = np.random.choice(self.env.action_space, p=action_probs)  # TODO: fix batching issue
+        action_batch = np.empty(action_probs.shape[0])
+        return action_batch
 
     # When reward is known, update the policy network
     # Arguments across batches
