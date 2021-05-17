@@ -10,6 +10,8 @@ from ctp.clutrr.models.util import uniform
 from ctp.reformulators import BaseReformulator
 from ctp.reformulators import GNTPReformulator
 
+from ctp.reinforcement.reinforce import ReinforceModule
+
 from typing import Tuple, Optional, List
 
 import logging
@@ -26,6 +28,7 @@ class BatchHoppy(nn.Module):
                  k: int = 10,                                       # k-max parameter. Select top k scores in r_hop()
                  depth: int = 0,                                    # Depth to search before stopping
                  tnorm_name: str = 'min',                           # How to calculate scores as a conjunction
+                 reinforce_module: ReinforceModule = None,          # Module containing REINFORCE
                  R: Optional[int] = None):                          # GNTP-R parameter from args?
         super().__init__()
 
@@ -143,7 +146,7 @@ class BatchHoppy(nn.Module):
 
         new_hops_lst = self.hops_lst
 
-        if self.R is not None:  # If number of reformulations specified? ---> IGNORE THIS BLOCK OF CODE
+        if self.R is not None:  # If GNTP reformulators included? ---> IGNORE THIS BLOCK OF CODE
             batch_rules_scores = torch.cat([h.prior(rel).view(-1, 1) for h, _ in self.hops_lst], 1)
             topk, indices = torch.topk(batch_rules_scores, self.R)
 
@@ -165,6 +168,8 @@ class BatchHoppy(nn.Module):
                 r = GNTPReformulator(kernel=kernel, head=new_rule_heads[:, i, :],  # Generates hops from relation?
                                      body=[new_rule_body1s[:, i, :], new_rule_body2s[:, i, :]])
                 new_hops_lst += [(r, False)]
+
+        # TODO: choose which reformulator to use with REINFORCE
 
         # Iterate through reformulators
         # is_reversed decides if the next sub-goal is in the form p(a, X) or p(X, a)
@@ -196,7 +201,7 @@ class BatchHoppy(nn.Module):
                 hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
                 hop_rel_2d = hop_rel_3d.view(-1, embedding_size)
 
-                if hop_idx < nb_hops:
+                if hop_idx < nb_hops:  # Scores are T-normed in one by one
                     # [B * S, K], [B * S, K, E]
                     if is_reversed:
                         z_scores, z_emb = self.r_hop(hop_rel_2d, None, sources_2d,
@@ -216,7 +221,7 @@ class BatchHoppy(nn.Module):
                     # [B * S * K]
                     scores = z_scores_1d if scores is None \
                         else self._tnorm(z_scores_1d, scores.view(-1, 1).repeat(1, k).view(-1))
-                else:
+                else:  # Final hop
                     # [B, S, E]
                     arg2_3d = arg2.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
                     # [B * S, E]
@@ -240,6 +245,7 @@ class BatchHoppy(nn.Module):
                                        facts=facts, nb_facts=nb_facts,
                                        entity_embeddings=entity_embeddings, nb_entities=nb_entities)
 
+            # Maximize score across reformulators
             global_res = res if global_res is None else torch.max(global_res, res)
 
         return global_res

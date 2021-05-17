@@ -28,6 +28,8 @@ from ctp.reformulators import NTPReformulator
 from ctp.kernels import BaseKernel, GaussianKernel
 from ctp.regularizers import N2, N3, Entropy
 
+from ctp.reinforcement.reinforce import ReinforceModule
+
 from typing import List, Tuple, Dict, Optional
 
 from tqdm import tqdm
@@ -213,6 +215,10 @@ def main(argv):
 
     argparser.add_argument('--predicate', action='store_true', default=False)
 
+    # Reinforcement arguments
+    argparser.add_argument('--episodes', action='store', type=int, default=1)
+    argparser.add_argument('--reinforce-batch-size', action='store', type=int, default=8)
+
     args = argparser.parse_args(argv)
 
     train_path = args.train
@@ -268,6 +274,9 @@ def main(argv):
 
     is_predicate = args.predicate
 
+    episodes = args.episodes
+    reinforce_batch_size = args.reinforce_batch_size
+
     np.random.seed(seed)
     random_state = np.random.RandomState(seed)
     torch.manual_seed(seed)
@@ -318,6 +327,8 @@ def main(argv):
     model = BatchNeuralKB(kernel=kernel, scoring_type=scoring_type).to(device)
     memory: Dict[int, MemoryReformulator.Memory] = {}
 
+    reinforce_module = ReinforceModule(n_reformulators=len(hops_str), embedding_size=embedding_size)
+
     def make_hop(s: str) -> Tuple[BaseReformulator, bool]:
         nonlocal memory
         if s.isdigit():
@@ -348,10 +359,10 @@ def main(argv):
     if encoder_str is not None:  # Does not seem to be used
         encoder_lst = [make_hop(s) for s in encoder_str]
         encoder_model = BatchHoppy(model=model, k=k_max, depth=1, tnorm_name=tnorm_name,
-                                   hops_lst=encoder_lst, R=gntp_R).to(device)
+                                   hops_lst=encoder_lst, R=gntp_R, reinforce_module=reinforce_module).to(device)
 
     hoppy = BatchHoppy(model=encoder_model, k=k_max, depth=max_depth, tnorm_name=tnorm_name,
-                       hops_lst=hops_lst, R=gntp_R).to(device)
+                       hops_lst=hops_lst, R=gntp_R, reinforce_module=reinforce_module).to(device)
 
     def scoring_function(instances_batch: List[Instance],
                          relation_lst: List[str],
