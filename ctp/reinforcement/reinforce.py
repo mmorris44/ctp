@@ -40,8 +40,7 @@ class ReinforceModule:
     def get_action(self, state: Tensor):
         action_probs = self.policy_estimator.predict(state).detach().cpu().numpy()
         action = np.random.choice(self.env.action_space, p=action_probs)  # TODO: fix batching issue
-        action_batch = np.empty(action_probs.shape[0])
-        return action_batch
+        return action
 
     # When reward is known, update the policy network
     # Arguments across batches

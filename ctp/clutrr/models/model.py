@@ -126,14 +126,126 @@ class BatchHoppy(nn.Module):
             res = scores if res is None else torch.max(res, scores)  # Maximize score across depth
         return res
 
+    # Get score using reformulator selector
+    def depth_r_score_select(self,
+                             rel: Tensor, arg1: Tensor, arg2: Tensor,  # Predicate, first entity, second entity
+                             facts: List[Tensor],          # List of lists of facts (different facts for each batch)
+                             nb_facts: Tensor,             # Number of facts for each example in the batch
+                             entity_embeddings: Tensor,    # Entity embeddings
+                             nb_entities: Tensor,          # Number of entities
+                             depth: int) -> Tensor:        # How many more steps down before calling to KB
+        assert depth >= 0
+
+        if depth == 0:  # If depth reached, call to neural KB for score
+            return self.model.score(rel, arg1, arg2,
+                                    facts=facts, nb_facts=nb_facts,
+                                    entity_embeddings=entity_embeddings, nb_entities=nb_entities)
+
+        batch_size, embedding_size = rel.shape[0], rel.shape[1]
+
+        if batch_size > 1:  # If more than 1 element in the batch
+            print("-----")
+            print("depth_r_score_select, before un-batch:", rel.size(), arg1.size(), arg2.size(), facts[0].size(),
+                  facts[1].size(), facts[2].size(), nb_facts.size(),
+                  entity_embeddings.size(), nb_entities.size(), depth)
+
+            # Un-batch, call, then combine together again
+            batch_res = torch.zeros(batch_size)
+            for i in range(batch_size):
+                score = self.depth_r_score_select(rel=rel[i:i+1], arg1=arg1[i:i+1], arg2=arg2[i:i+1],
+                                                  facts=[x[i:i+1] for x in facts], nb_facts=nb_facts[i:i+1],
+                                                  entity_embeddings=entity_embeddings[i:i+1],
+                                                  nb_entities=nb_entities[i:i+1], depth=depth)
+                batch_res[i] = score.item()
+            return batch_res
+        # Can assume batch size is 1 from here onwards
+
+        print("depth_r_score_select:", rel.size(), arg1.size(), arg2.size(), facts[0].size(),
+              facts[1].size(), facts[2].size(), nb_facts.size(),
+              entity_embeddings.size(), nb_entities.size(), depth)
+
+        new_hops_lst = self.hops_lst
+
+        # [B, 3E] - B seems to be 576 with a batch size of 32 passed as a parameter
+        batch_emb = torch.cat([rel, arg1, arg2], dim=1)  # Embedding of predicate
+
+        action = self.reinforce_module.get_action(batch_emb[0])  # Get action
+        print("Chose action", action)
+
+        # Choose reformulator (hops_generator is reformulator)
+        # is_reversed decides if the next sub-goal is in the form p(a, X) or p(X, a)
+        (hops_generator, is_reversed) = new_hops_lst[action]
+
+        sources, scores = arg1, None
+
+        hop_rel_lst = hops_generator(rel)  # Generate hops from relation (using the reformulator)
+        nb_hops = len(hop_rel_lst)
+
+        # For each hop in the hops to consider for the relation
+        for hop_idx, hop_rel in enumerate(hop_rel_lst, start=1):
+            # [B * S, E]
+            sources_2d = sources.view(-1, embedding_size)
+            nb_sources = sources_2d.shape[0]
+
+            nb_branches = nb_sources // batch_size
+
+            hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
+            hop_rel_2d = hop_rel_3d.view(-1, embedding_size)
+
+            if hop_idx < nb_hops:  # Scores are T-normed in one by one
+                # [B * S, K], [B * S, K, E]
+                if is_reversed:
+                    z_scores, z_emb = self.r_hop(hop_rel_2d, None, sources_2d,
+                                                 facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                else:
+                    z_scores, z_emb = self.r_hop(hop_rel_2d, sources_2d, None,
+                                                 facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                k = z_emb.shape[1]
+
+                # [B * S * K]
+                z_scores_1d = z_scores.view(-1)
+                # [B * S * K, E]
+                z_emb_2d = z_emb.view(-1, embedding_size)
+
+                # [B * S * K, E]
+                sources = z_emb_2d
+                # [B * S * K]
+                scores = z_scores_1d if scores is None \
+                    else self._tnorm(z_scores_1d, scores.view(-1, 1).repeat(1, k).view(-1))
+            else:  # Final hop
+                # [B, S, E]
+                arg2_3d = arg2.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
+                # [B * S, E]
+                arg2_2d = arg2_3d.view(-1, embedding_size)
+
+                # [B * S]
+                if is_reversed:
+                    z_scores_1d = self.r_score(hop_rel_2d, arg2_2d, sources_2d,
+                                               facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                else:
+                    z_scores_1d = self.r_score(hop_rel_2d, sources_2d, arg2_2d,
+                                               facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+
+                scores = z_scores_1d if scores is None else self._tnorm(z_scores_1d, scores)
+
+        if scores is not None:
+            scores_2d = scores.view(batch_size, -1)
+            res, _ = torch.max(scores_2d, dim=1)
+        else:
+            res = self.model.score(rel, arg1, arg2,
+                                   facts=facts, nb_facts=nb_facts,
+                                   entity_embeddings=entity_embeddings, nb_entities=nb_entities)
+
+        return res
+
     # Get score of relation for given depth
     def depth_r_score(self,
-                      rel: Tensor, arg1: Tensor, arg2: Tensor,
-                      facts: List[Tensor],
-                      nb_facts: Tensor,
-                      entity_embeddings: Tensor,
-                      nb_entities: Tensor,
-                      depth: int) -> Tensor:
+                      rel: Tensor, arg1: Tensor, arg2: Tensor,  # Predicate, first entity, second entity
+                      facts: List[Tensor],          # List of lists of facts (different facts for each batch)
+                      nb_facts: Tensor,             # Number of facts for each example in the batch
+                      entity_embeddings: Tensor,    # Entity embeddings
+                      nb_entities: Tensor,          # Number of entities
+                      depth: int) -> Tensor:        # How many more steps down before calling to KB
         assert depth >= 0
 
         if depth == 0:  # If depth reached, call to neural KB for score
@@ -143,6 +255,11 @@ class BatchHoppy(nn.Module):
 
         batch_size, embedding_size = rel.shape[0], rel.shape[1]
         global_res = None
+
+        # print(rel.shape[0], arg1.shape[0], arg2.shape[0], nb_facts.shape[0], entity_embeddings.shape[0],
+        #       nb_entities.shape[0], facts[0].shape[0], facts[1].shape[0], facts[2].shape[0])
+        # rel.shape[0] == arg1.shape[0] == arg2.shape[0] == nb_facts.shape[0] == entity_embeddings.shape[0] == \
+        #        nb_entities.shape[0] == facts[0].shape[0] == facts[1].shape[0] == facts[2].shape[0]
 
         mask = None
 
@@ -171,13 +288,7 @@ class BatchHoppy(nn.Module):
                                      body=[new_rule_body1s[:, i, :], new_rule_body2s[:, i, :]])
                 new_hops_lst += [(r, False)]
 
-        # TODO: choose which reformulator to use with REINFORCE
-        # [B, 3E] - B seems to be 576 with a batch size of 32 passed as a parameter
-        batch_emb = torch.cat([rel, arg1, arg2], dim=1)  # Embedding of predicate
-        action = self.reinforce_module.get_action(batch_emb)
-        # TODO: Big issue. Need to decide which reformulator to use on individual elements of the batch
-
-        # Iterate through reformulators
+        # Iterate through reformulators (hops_generator is reformulator)
         # is_reversed decides if the next sub-goal is in the form p(a, X) or p(X, a)
         for rule_idx, (hops_generator, is_reversed) in enumerate(new_hops_lst):
             sources, scores = arg1, None
