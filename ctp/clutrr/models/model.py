@@ -126,7 +126,7 @@ class BatchHoppy(nn.Module):
             res = scores if res is None else torch.max(res, scores)  # Maximize score across depth
         return res
 
-    # Get score using reformulator selector
+    # Get score using reformulator selector - TODO: remove or implement
     def depth_r_score_select(self,
                              rel: Tensor, arg1: Tensor, arg2: Tensor,  # Predicate, first entity, second entity
                              facts: List[Tensor],          # List of lists of facts (different facts for each batch)
@@ -153,9 +153,9 @@ class BatchHoppy(nn.Module):
             batch_res = torch.zeros(batch_size)
             for i in range(batch_size):
                 score = self.depth_r_score_select(rel=rel[i:i+1], arg1=arg1[i:i+1], arg2=arg2[i:i+1],
-                                                  facts=[x[i:i+1] for x in facts], nb_facts=nb_facts[i:i+1],
-                                                  entity_embeddings=entity_embeddings[i:i+1],
-                                                  nb_entities=nb_entities[i:i+1], depth=depth)
+                                                  facts=facts, nb_facts=nb_facts,
+                                                  entity_embeddings=entity_embeddings,
+                                                  nb_entities=nb_entities, depth=depth)
                 batch_res[i] = score.item()
             return batch_res
         # Can assume batch size is 1 from here onwards
@@ -255,11 +255,6 @@ class BatchHoppy(nn.Module):
 
         batch_size, embedding_size = rel.shape[0], rel.shape[1]
         global_res = None
-
-        # print(rel.shape[0], arg1.shape[0], arg2.shape[0], nb_facts.shape[0], entity_embeddings.shape[0],
-        #       nb_entities.shape[0], facts[0].shape[0], facts[1].shape[0], facts[2].shape[0])
-        # rel.shape[0] == arg1.shape[0] == arg2.shape[0] == nb_facts.shape[0] == entity_embeddings.shape[0] == \
-        #        nb_entities.shape[0] == facts[0].shape[0] == facts[1].shape[0] == facts[2].shape[0]
 
         mask = None
 

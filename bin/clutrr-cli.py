@@ -156,59 +156,60 @@ def main(argv):
 
     train_path = test_path = "data/clutrr-emnlp/data_test/64.csv"
 
-    argparser.add_argument('--train', action='store', type=str, default=train_path)
-    argparser.add_argument('--test', nargs='+', type=str, default=[test_path])
+    argparser.add_argument('--train', action='store', type=str, default=train_path)  # Train files
+    argparser.add_argument('--test', nargs='+', type=str, default=[test_path])  # Test files
 
     # model params
-    argparser.add_argument('--embedding-size', '-k', action='store', type=int, default=20)
-    argparser.add_argument('--k-max', '-m', action='store', type=int, default=10)
-    argparser.add_argument('--max-depth', '-d', action='store', type=int, default=2)
-    argparser.add_argument('--test-max-depth', action='store', type=int, default=None)
+    argparser.add_argument('--embedding-size', '-k', action='store', type=int, default=20)  # Embedding size
+    argparser.add_argument('--k-max', '-m', action='store', type=int, default=10)  # Top k scores are selected
+    argparser.add_argument('--max-depth', '-d', action='store', type=int, default=2)  # Depth when training
+    argparser.add_argument('--test-max-depth', action='store', type=int, default=None)  # Depth when testing
 
-    argparser.add_argument('--hops', nargs='+', type=str, default=['2', '2', '1R'])
+    argparser.add_argument('--hops', nargs='+', type=str, default=['2', '2', '1R'])  # Reformulators
+    # e.g. 2 2 2 = 3 reformulators, each with 2 binary predicates in the body
     argparser.add_argument('--encoder', nargs='+', type=str, default=None)
 
     # training params
-    argparser.add_argument('--epochs', '-e', action='store', type=int, default=100)
-    argparser.add_argument('--learning-rate', '-l', action='store', type=float, default=0.1)
-    argparser.add_argument('--batch-size', '-b', action='store', type=int, default=8)
-    argparser.add_argument('--test-batch-size', '--tb', action='store', type=int, default=None)
+    argparser.add_argument('--epochs', '-e', action='store', type=int, default=100)  # Number of epochs
+    argparser.add_argument('--learning-rate', '-l', action='store', type=float, default=0.1)  # Learning rate
+    argparser.add_argument('--batch-size', '-b', action='store', type=int, default=8)  # Batch size
+    argparser.add_argument('--test-batch-size', '--tb', action='store', type=int, default=None)  # Test batch size
 
-    argparser.add_argument('--optimizer', '-o', action='store', type=str, default='adagrad',
+    argparser.add_argument('--optimizer', '-o', action='store', type=str, default='adagrad',  # Optimizer
                            choices=['adagrad', 'adam', 'sgd'])
 
-    argparser.add_argument('--seed', action='store', type=int, default=0)
+    argparser.add_argument('--seed', action='store', type=int, default=0)  # Seed for all randomness
 
-    argparser.add_argument('--evaluate-every', '-V', action='store', type=int, default=1)
+    argparser.add_argument('--evaluate-every', '-V', action='store', type=int, default=1)  # How often to evaluate
     argparser.add_argument('--evaluate-every-batches', action='store', type=int, default=None)
 
     argparser.add_argument('--N2', action='store', type=float, default=None)
     argparser.add_argument('--N3', action='store', type=float, default=None)
     argparser.add_argument('--entropy', '-E', action='store', type=float, default=None)
 
-    argparser.add_argument('--scoring-type', '-s', action='store', type=str, default='concat',
+    argparser.add_argument('--scoring-type', '-s', action='store', type=str, default='concat',  # Always concatenate
                            choices=['concat', 'min'])
 
-    argparser.add_argument('--tnorm', '-t', action='store', type=str, default='min',
+    argparser.add_argument('--tnorm', '-t', action='store', type=str, default='min',  # How to combine body predicates
                            choices=['min', 'prod', 'mean'])
-    argparser.add_argument('--reformulator', '-r', action='store', type=str, default='linear',
+    argparser.add_argument('--reformulator', '-r', action='store', type=str, default='linear',  # Reformulator type
                            choices=['static', 'linear', 'attentive', 'memory', 'ntp'])
-    argparser.add_argument('--nb-rules', '-R', action='store', type=int, default=4)
+    argparser.add_argument('--nb-rules', '-R', action='store', type=int, default=4)  # For memory reformulator
 
     argparser.add_argument('--gradient-accumulation-steps', action='store', type=int, default=1)
 
     argparser.add_argument('--GNTP-R', action='store', type=int, default=None)
 
-    argparser.add_argument('--slope', '-S', action='store', type=float, default=None)
-    argparser.add_argument('--init-size', '-i', action='store', type=float, default=1.0)
+    argparser.add_argument('--slope', '-S', action='store', type=float, default=None)  # Kernel slope
+    argparser.add_argument('--init-size', '-i', action='store', type=float, default=1.0)  # Scales relation embeddings
 
-    argparser.add_argument('--init', action='store', type=str, default='uniform')
-    argparser.add_argument('--ref-init', action='store', type=str, default='random')
+    argparser.add_argument('--init', action='store', type=str, default='uniform')  # How to initialize
+    argparser.add_argument('--ref-init', action='store', type=str, default='random')  # How to initialize reformulators
 
     argparser.add_argument('--fix-relations', '--FR', action='store_true', default=False)
     argparser.add_argument('--start-simple', action='store', type=int, default=None)
 
-    argparser.add_argument('--debug', '-D', action='store_true', default=False)
+    argparser.add_argument('--debug', '-D', action='store_true', default=False)  # Print rules
 
     argparser.add_argument('--load', action='store', type=str, default=None)
     argparser.add_argument('--save', action='store', type=str, default=None)
