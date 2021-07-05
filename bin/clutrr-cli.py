@@ -328,7 +328,8 @@ def main(argv):
     model = BatchNeuralKB(kernel=kernel, scoring_type=scoring_type).to(device)
     memory: Dict[int, MemoryReformulator.Memory] = {}
 
-    reinforce_module = ReinforceModule(n_reformulators=len(hops_str), embedding_size=embedding_size)
+    reinforce_module = ReinforceModule(n_reformulators=len(hops_str), embedding_size=embedding_size,
+                                       n_actions_selected=3)  # TODO: make this a parameter
 
     def make_hop(s: str) -> Tuple[BaseReformulator, bool]:
         nonlocal memory

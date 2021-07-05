@@ -31,16 +31,17 @@ class PolicyEstimator:
 
 
 class ReinforceModule:
-    def __init__(self, n_reformulators, embedding_size):
+    def __init__(self, n_reformulators, embedding_size, n_actions_selected):
         self.env = CTPEnv(n_reformulators=n_reformulators, embedding_size=embedding_size)
         self.policy_estimator = PolicyEstimator(self.env)
         self.optimizer = optim.Adam(self.policy_estimator.network.parameters(), lr=0.01)
+        self.n_actions_selected = n_actions_selected
 
     # Call to get action
-    def get_action(self, state: Tensor):
+    def get_actions(self, state: Tensor):
         action_probs = self.policy_estimator.predict(state).detach().cpu().numpy()
-        action = np.random.choice(self.env.action_space, p=action_probs)  # TODO: fix batching issue
-        return action
+        actions = np.random.choice(a=self.env.action_space, size=self.n_actions_selected, replace=False, p=action_probs)
+        return actions
 
     # When reward is known, update the policy network
     # Arguments across batches
@@ -49,10 +50,10 @@ class ReinforceModule:
 
         # Calculate loss
         logprob = torch.log(self.policy_estimator.predict(state))
-        selected_logprobs = reward * torch.gather(logprob, 1, action.unsqueeze(1)).squeeze()
+        selected_logprobs = reward * torch.gather(logprob, 0, action).squeeze()
         loss = -selected_logprobs.mean()
 
         # Calculate gradients
-        loss.backward()
+        loss.backward(retain_graph=True)
         # Apply gradients
         self.optimizer.step()
