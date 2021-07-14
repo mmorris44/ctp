@@ -34,14 +34,22 @@ class ReinforceModule:
     def __init__(self, n_reformulators, embedding_size, n_actions_selected):
         self.env = CTPEnv(n_reformulators=n_reformulators, embedding_size=embedding_size)
         self.policy_estimator = PolicyEstimator(self.env)
-        self.optimizer = optim.Adam(self.policy_estimator.network.parameters(), lr=0.01)
+        self.optimizer = optim.Adam(self.policy_estimator.network.parameters(), lr=0.01)  # TODO: parameterize LR
         self.n_actions_selected = n_actions_selected
 
     # Call to get action
     def get_actions(self, state: Tensor):
+        batch_size = state.shape[0]
+        action_counts = [0] * len(self.env.action_space)  # Count the number of times each action is selected
+
         action_probs = self.policy_estimator.predict(state).detach().cpu().numpy()
-        actions = np.random.choice(a=self.env.action_space, size=self.n_actions_selected, replace=False, p=action_probs)
-        return actions
+        actions = np.zeros(shape=(action_probs.shape[0], self.n_actions_selected), dtype=int)
+        for i in range(batch_size):
+            actions[i] = np.random.choice(a=self.env.action_space, size=self.n_actions_selected,
+                                          replace=False, p=action_probs[i])
+            for action in actions[i]:
+                action_counts[action] += 1
+        return actions, action_counts
 
     # When reward is known, update the policy network
     # Arguments across batches
