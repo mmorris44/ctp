@@ -37,7 +37,7 @@ def parse_rules(rules, delimiter="#####", rule_template=False):
     for rule in rules:
         if rule_template:
             splits = re.split("\A\n?([0-9]?[0-9]+)", rule)
-            # fixme: should be 0 and 1 respectively
+            # previous task: should be 0 and 1 respectively
             num = int(splits[1])
             rule = splits[2]
         rule = re.sub(":-", delimiter, rule)

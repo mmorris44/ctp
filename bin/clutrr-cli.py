@@ -217,8 +217,9 @@ def main(argv):
     argparser.add_argument('--predicate', action='store_true', default=False)
 
     # Reinforcement arguments
-    argparser.add_argument('--episodes', action='store', type=int, default=1)
-    argparser.add_argument('--reinforce-batch-size', action='store', type=int, default=8)
+    argparser.add_argument('--use-rl', action='store_true', default=False)  # Use reinforcement learning
+    argparser.add_argument('--rl-learning-rate', '-rll', action='store', type=float, default=0.01)  # Learning rate
+    argparser.add_argument('--rl-actions-selected', action='store', type=int, default=3)  # Number of actions to select
 
     args = argparser.parse_args(argv)
 
@@ -275,8 +276,9 @@ def main(argv):
 
     is_predicate = args.predicate
 
-    episodes = args.episodes
-    reinforce_batch_size = args.reinforce_batch_size
+    use_rl = args.use_rl
+    rl_learning_rate = args.rl_learning_rate
+    rl_actions_selected = args.rl_actions_selected
 
     np.random.seed(seed)
     random_state = np.random.RandomState(seed)
@@ -329,7 +331,7 @@ def main(argv):
     memory: Dict[int, MemoryReformulator.Memory] = {}
 
     reinforce_module = ReinforceModule(n_reformulators=len(hops_str), embedding_size=embedding_size,
-                                       n_actions_selected=3)  # TODO: make this a parameter
+                                       n_actions_selected=rl_actions_selected, lr=rl_learning_rate, use_rl=use_rl)
 
     def make_hop(s: str) -> Tuple[BaseReformulator, bool]:
         nonlocal memory
@@ -599,6 +601,9 @@ def main(argv):
 
         slope = kernel.slope.item() if isinstance(kernel.slope, Tensor) else kernel.slope
         logger.info(f'Epoch {epoch_no}/{nb_epochs}\tLoss {loss_mean:.4f} ± {loss_std:.4f}\tSlope {slope:.4f}')
+
+    # Switch reinforce module to test mode
+    reinforce_module.mode = 'test'
 
     import time
     start = time.time()

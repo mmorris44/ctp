@@ -13,6 +13,7 @@ class CTPEnv:
 
 
 # Gradient policy network
+# TODO: come up with good network architecture
 class PolicyEstimator:
     def __init__(self, env):
         self.n_inputs = env.observation_size
@@ -31,13 +32,16 @@ class PolicyEstimator:
 
 
 class ReinforceModule:
-    def __init__(self, n_reformulators, embedding_size, n_actions_selected):
+    def __init__(self, n_reformulators, embedding_size, n_actions_selected, lr, use_rl):
         self.env = CTPEnv(n_reformulators=n_reformulators, embedding_size=embedding_size)
         self.policy_estimator = PolicyEstimator(self.env)
-        self.optimizer = optim.Adam(self.policy_estimator.network.parameters(), lr=0.01)  # TODO: parameterize LR
+        self.optimizer = optim.Adam(self.policy_estimator.network.parameters(), lr=lr)
         self.n_actions_selected = n_actions_selected
+        self.mode = 'train'  # 'train' or 'test'
+        self.use_rl = use_rl
 
     # Call to get action
+    # Argument is a batch of states
     def get_actions(self, state: Tensor):
         batch_size = state.shape[0]
         action_counts = [0] * len(self.env.action_space)  # Count the number of times each action is selected
@@ -54,14 +58,26 @@ class ReinforceModule:
     # When reward is known, update the policy network
     # Arguments across batches
     def apply_reward(self, state: Tensor, action: Tensor, reward: Tensor):
+        # self.optimizer.zero_grad()
+        #
+        # # Calculate loss
+        # logprob = torch.log(self.policy_estimator.predict(state))
+        # selected_logprobs = reward * torch.gather(logprob, 0, action).squeeze()
+        # loss = -selected_logprobs.mean()
+        #
+        # # Calculate gradients
+        # loss.backward(retain_graph=True)
+        # # Apply gradients
+        # self.optimizer.step()
+
         self.optimizer.zero_grad()
 
         # Calculate loss
         logprob = torch.log(self.policy_estimator.predict(state))
-        selected_logprobs = reward * torch.gather(logprob, 0, action).squeeze()
+        selected_logprobs = reward * torch.gather(logprob, 1, action.unsqueeze(1)).squeeze()
         loss = -selected_logprobs.mean()
 
         # Calculate gradients
-        loss.backward(retain_graph=True)
+        loss.backward(retain_graph=True)  # TODO: retain_graph slows it down a lot
         # Apply gradients
         self.optimizer.step()
