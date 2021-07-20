@@ -519,7 +519,10 @@ def main(argv):
     assert optimizer_name in optimizer_factory
     optimizer = optimizer_factory[optimizer_name](params)
 
+    # Train all reformulators
+    logger.info("Training reformulators")
     global_step = 0
+    reinforce_module.use_rl = False
 
     for epoch_no in range(1, nb_epochs + 1):
 
@@ -601,6 +604,59 @@ def main(argv):
 
         slope = kernel.slope.item() if isinstance(kernel.slope, Tensor) else kernel.slope
         logger.info(f'Epoch {epoch_no}/{nb_epochs}\tLoss {loss_mean:.4f} ± {loss_std:.4f}\tSlope {slope:.4f}')
+
+    # Now train the selection module
+    logger.info("Training selection module")
+    global_step = 0
+    reinforce_module.use_rl = True
+
+    # TODO: separate parameter for number of epochs here
+    for epoch_no in range(1, nb_epochs + 1):
+
+        training_set, is_simple = data.train, False
+        if start_simple is not None and epoch_no <= start_simple:
+            training_set = [ins for ins in training_set if len(ins.story) == 2]
+            is_simple = True
+            logger.info(f'{len(data.train)} → {len(training_set)}')
+
+        batcher = Batcher(batch_size=batch_size, nb_examples=len(training_set), nb_epochs=1, random_state=random_state)
+
+        nb_batches = len(batcher.batches)
+        epoch_loss_values = []
+
+        for batch_no, (batch_start, batch_end) in tqdm(enumerate(batcher.batches, start=1),
+                                                       f'Epoch {epoch_no}/{nb_epochs}',
+                                                       file=sys.stdout, total=nb_batches):
+            global_step += 1
+
+            indices_batch = batcher.get_batch(batch_start, batch_end)
+            instances_batch = [training_set[i] for i in indices_batch]
+
+            scoring_function(instances_batch,
+                             test_predicate_lst if is_predicate else test_relation_lst,
+                             is_train=True,
+                             _depth=1 if is_simple else None)
+
+            if evaluate_every_batches is not None:
+                if global_step % evaluate_every_batches == 0:
+                    for test_path in test_paths:
+                        evaluate(instances=data.test[test_path], path=test_path)
+
+        if epoch_no % evaluate_every == 0:
+            for test_path in test_paths:
+                evaluate(instances=data.test[test_path], path=test_path)
+
+            if is_debug is True:
+                with torch.no_grad():
+                    show_rules(model=hoppy, kernel=kernel, relation_embeddings=relation_embeddings,
+                               relation_to_idx=predicate_to_idx if is_predicate else relation_to_idx, device=device)
+
+        loss_mean, loss_std = -1, -1
+
+        slope = kernel.slope.item() if isinstance(kernel.slope, Tensor) else kernel.slope
+        logger.info(f'Epoch {epoch_no}/{nb_epochs}\tLoss {loss_mean:.4f} ± {loss_std:.4f}\tSlope {slope:.4f}')
+
+        # TODO: log the average rewards
 
     # Switch reinforce module to test mode
     reinforce_module.mode = 'test'
