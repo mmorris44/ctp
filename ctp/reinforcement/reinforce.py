@@ -21,9 +21,9 @@ class PolicyEstimator:
 
         # Define network
         self.network = nn.Sequential(
-            nn.Linear(self.n_inputs, 16),
+            nn.Linear(self.n_inputs, 30),  # Used to be 16
             nn.ReLU(),
-            nn.Linear(16, self.n_outputs),
+            nn.Linear(30, self.n_outputs),
             nn.Softmax(dim=-1))
 
     def predict(self, state: torch.FloatTensor):
@@ -58,18 +58,6 @@ class ReinforceModule:
     # When reward is known, update the policy network
     # Arguments across batches
     def apply_reward(self, state: Tensor, action: Tensor, reward: Tensor):
-        # self.optimizer.zero_grad()
-        #
-        # # Calculate loss
-        # logprob = torch.log(self.policy_estimator.predict(state))
-        # selected_logprobs = reward * torch.gather(logprob, 0, action).squeeze()
-        # loss = -selected_logprobs.mean()
-        #
-        # # Calculate gradients
-        # loss.backward(retain_graph=True)
-        # # Apply gradients
-        # self.optimizer.step()
-
         self.optimizer.zero_grad()
 
         # Calculate loss
