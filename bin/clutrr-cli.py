@@ -608,7 +608,7 @@ def main(argv):
     # Now train the selection module
     logger.info("Training selection module")
     global_step = 0
-    reinforce_module.use_rl = True
+    reinforce_module.use_rl = use_rl
 
     # TODO: separate parameter for number of epochs here
     for epoch_no in range(1, nb_epochs + 1):
