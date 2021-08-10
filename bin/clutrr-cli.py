@@ -220,6 +220,7 @@ def main(argv):
     argparser.add_argument('--use-rl', action='store_true', default=False)  # Use reinforcement learning
     argparser.add_argument('--rl-learning-rate', '-rll', action='store', type=float, default=0.01)  # Learning rate
     argparser.add_argument('--rl-actions-selected', action='store', type=int, default=3)  # Number of actions to select
+    argparser.add_argument('--rl-epochs', '-re', action='store', type=int, default=1)  # Epochs for RL
 
     args = argparser.parse_args(argv)
 
@@ -279,6 +280,7 @@ def main(argv):
     use_rl = args.use_rl
     rl_learning_rate = args.rl_learning_rate
     rl_actions_selected = args.rl_actions_selected
+    rl_nb_epochs = args.rl_epochs
 
     np.random.seed(seed)
     random_state = np.random.RandomState(seed)
@@ -611,8 +613,7 @@ def main(argv):
         global_step = 0
         reinforce_module.use_rl = True
 
-        # TODO: separate parameter for number of epochs here
-        for epoch_no in range(1, nb_epochs + 1):
+        for epoch_no in range(1, rl_nb_epochs + 1):
 
             training_set, is_simple = data.train, False
             if start_simple is not None and epoch_no <= start_simple:
@@ -626,22 +627,43 @@ def main(argv):
             epoch_loss_values = []
 
             for batch_no, (batch_start, batch_end) in tqdm(enumerate(batcher.batches, start=1),
-                                                           f'Epoch {epoch_no}/{nb_epochs}',
+                                                           f'Epoch {epoch_no}/{rl_nb_epochs}',
                                                            file=sys.stdout, total=nb_batches):
                 global_step += 1
 
                 indices_batch = batcher.get_batch(batch_start, batch_end)
                 instances_batch = [training_set[i] for i in indices_batch]
 
-                scoring_function(instances_batch,
-                                 test_predicate_lst if is_predicate else test_relation_lst,
-                                 is_train=True,
-                                 _depth=1 if is_simple else None)
+                if is_predicate is True:
+                    label_lst: List[int] = [int(relation_to_predicate[ins.target[1]] == tp)
+                                            for ins in instances_batch
+                                            for tp in test_predicate_lst]
+                else:
+                    label_lst: List[int] = [int(ins.target[1] == tr) for ins in instances_batch for tr in
+                                            test_relation_lst]
 
-                if evaluate_every_batches is not None:
-                    if global_step % evaluate_every_batches == 0:
-                        for test_path in test_paths:
-                            evaluate(instances=data.test[test_path], path=test_path)
+                labels = torch.tensor(label_lst, dtype=torch.float32, device=device)
+
+                scores, query_emb_lst = scoring_function(instances_batch,
+                                                         test_predicate_lst if is_predicate else test_relation_lst,
+                                                         is_train=True,
+                                                         _depth=1 if is_simple else None)
+
+                loss = loss_function(scores, labels)
+
+                factors = [hoppy.factor(e) for e in query_emb_lst]
+
+                loss += N2_weight * N2_reg(factors) if N2_weight is not None else 0.0
+                loss += N3_weight * N3_reg(factors) if N3_weight is not None else 0.0
+
+                if entropy_weight is not None:
+                    for hop, _ in hops_lst:
+                        attn_logits = hop.projection(query_emb_lst[0])
+                        attention = torch.softmax(attn_logits, dim=1)
+                        loss += entropy_weight * entropy_reg([attention])
+
+                loss_value = loss.item()
+                epoch_loss_values += [loss_value]  # Getting the loss just to see progress over time
 
             if epoch_no % evaluate_every == 0:
                 for test_path in test_paths:
@@ -652,12 +674,10 @@ def main(argv):
                         show_rules(model=hoppy, kernel=kernel, relation_embeddings=relation_embeddings,
                                    relation_to_idx=predicate_to_idx if is_predicate else relation_to_idx, device=device)
 
-            loss_mean, loss_std = -1, -1
+            loss_mean, loss_std = np.mean(epoch_loss_values), np.std(epoch_loss_values)
 
             slope = kernel.slope.item() if isinstance(kernel.slope, Tensor) else kernel.slope
-            logger.info(f'Epoch {epoch_no}/{nb_epochs}\tLoss {loss_mean:.4f} ± {loss_std:.4f}\tSlope {slope:.4f}')
-
-            # TODO: log the average rewards
+            logger.info(f'Epoch {epoch_no}/{rl_nb_epochs}\tLoss {loss_mean:.4f} ± {loss_std:.4f}\tSlope {slope:.4f}')
 
         # Switch reinforce module to test mode
         reinforce_module.mode = 'test'

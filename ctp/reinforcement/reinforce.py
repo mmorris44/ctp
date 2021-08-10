@@ -67,6 +67,6 @@ class ReinforceModule:
         loss = -selected_logprobs.mean()
 
         # Calculate gradients
-        loss.backward(retain_graph=True)  # TODO: retain_graph slows it down a lot
+        loss.backward(retain_graph=True)  # retain_graph slows it down a lot, but seems necessary to not discard tensors
         # Apply gradients
         self.optimizer.step()
