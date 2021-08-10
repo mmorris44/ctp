@@ -22,7 +22,8 @@ class PolicyEstimator:
         # Define network
         self.network = nn.Sequential(
             nn.Linear(self.n_inputs, 30),  # Used to be 16
-            nn.ReLU(),
+            #nn.ReLU(),  # NaN from Softmax function when using this
+            nn.Sigmoid(),
             nn.Linear(30, self.n_outputs),
             nn.Softmax(dim=-1))
 
