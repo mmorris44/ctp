@@ -7,9 +7,4 @@ scikit-learn
 scipy
 PyYAML
 sklearn
-torch-scatter
-torch-sparse
-torch-cluster
-torch-spline-conv
-torch-geometric
 wandb
