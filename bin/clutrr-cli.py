@@ -33,6 +33,7 @@ from ctp.reinforcement.reinforce import ReinforceModule
 from typing import List, Tuple, Dict, Optional
 
 from tqdm import tqdm
+import time
 
 import logging
 import wandb
@@ -496,6 +497,7 @@ def main(argv):
     def evaluate(instances: List[Instance],
                  path: str,
                  sample_size: Optional[int] = None) -> float:
+        start = time.time()
         res = 0.0
         if len(instances) > 0:
             res = accuracy(scoring_function=scoring_function,
@@ -507,7 +509,8 @@ def main(argv):
                            is_debug=is_debug)
             logger.info(f'Test Accuracy on {path}: {res:.6f}')
             if use_wandb:
-                wandb.log({path: 0, "test_accuracy": res})
+                end = time.time()
+                wandb.log({"test_accuracy : " + path: res, "test_time : " + path: end - start})
         return res
 
     loss_function = nn.BCELoss()
@@ -545,6 +548,7 @@ def main(argv):
     reinforce_module.use_rl = False
 
     for epoch_no in range(1, nb_epochs + 1):
+        start = time.time()
 
         training_set, is_simple = data.train, False
         if start_simple is not None and epoch_no <= start_simple:
@@ -625,7 +629,8 @@ def main(argv):
         slope = kernel.slope.item() if isinstance(kernel.slope, Tensor) else kernel.slope
         logger.info(f'Epoch {epoch_no}/{nb_epochs}\tLoss {loss_mean:.4f} ± {loss_std:.4f}\tSlope {slope:.4f}')
         if use_wandb:
-            wandb.log({"epoch": epoch_no, "loss_mean": loss_mean, "loss_std": loss_std})
+            end = time.time()
+            wandb.log({"epoch": epoch_no, "loss_mean": loss_mean, "loss_std": loss_std, "epoch_time": end - start})
 
     # Now train the selection module
     if use_rl:
@@ -634,6 +639,7 @@ def main(argv):
         reinforce_module.use_rl = True
 
         for epoch_no in range(1, rl_nb_epochs + 1):
+            start = time.time()
 
             training_set, is_simple = data.train, False
             if start_simple is not None and epoch_no <= start_simple:
@@ -699,12 +705,13 @@ def main(argv):
             slope = kernel.slope.item() if isinstance(kernel.slope, Tensor) else kernel.slope
             logger.info(f'Epoch {epoch_no}/{rl_nb_epochs}\tLoss {loss_mean:.4f} ± {loss_std:.4f}\tSlope {slope:.4f}')
             if use_wandb:
-                wandb.log({"epoch": epoch_no, "rl_loss_mean": loss_mean, "rl_loss_std": loss_std})
+                end = time.time()
+                wandb.log({"rl_epoch": epoch_no, "rl_loss_mean": loss_mean, "rl_loss_std": loss_std,
+                           "rl_epoch_time": end - start})
 
         # Switch reinforce module to test mode
         reinforce_module.mode = 'test'
 
-    import time
     start = time.time()
 
     for test_path in test_paths:
