@@ -167,7 +167,8 @@ def main(argv):
     argparser.add_argument('--max-depth', '-d', action='store', type=int, default=2)  # Depth when training
     argparser.add_argument('--test-max-depth', action='store', type=int, default=None)  # Depth when testing
 
-    argparser.add_argument('--hops', nargs='+', type=str, default=['2', '2', '1R'])  # Reformulators
+    # argparser.add_argument('--hops', nargs='+', type=str, default=['2', '2', '1R'])  # Reformulators
+    argparser.add_argument('--hops', type=str, default='2 2 1R')  # Reformulators
     # e.g. 2 2 2 = 3 reformulators, each with 2 binary predicates in the body
     argparser.add_argument('--encoder', nargs='+', type=str, default=None)
 
@@ -238,7 +239,7 @@ def main(argv):
     max_depth = args.max_depth
     test_max_depth = args.test_max_depth
 
-    hops_str = args.hops
+    hops_str = args.hops.split(" ")
     encoder_str = args.encoder
 
     nb_epochs = args.epochs
