@@ -35,6 +35,7 @@ from typing import List, Tuple, Dict, Optional
 from tqdm import tqdm
 
 import logging
+import wandb
 
 logger = logging.getLogger(os.path.basename(sys.argv[0]))
 np.set_printoptions(linewidth=256, precision=4, suppress=True, threshold=sys.maxsize)
@@ -222,6 +223,9 @@ def main(argv):
     argparser.add_argument('--rl-actions-selected', action='store', type=int, default=3)  # Number of actions to select
     argparser.add_argument('--rl-epochs', '-re', action='store', type=int, default=1)  # Epochs for RL
 
+    # Wandb arguments
+    argparser.add_argument('--use-wandb', action='store_true', default=False)  # Use Weights and Biases
+
     args = argparser.parse_args(argv)
 
     train_path = args.train
@@ -281,6 +285,14 @@ def main(argv):
     rl_learning_rate = args.rl_learning_rate
     rl_actions_selected = args.rl_actions_selected
     rl_nb_epochs = args.rl_epochs
+
+    use_wandb = args.use_wandb
+
+    # Setup wandb
+    if use_wandb:
+        wandb.init(project='ctp', entity='mmorris44')
+        config = wandb.config
+        config.learning_rate = learning_rate  # Do I need the rest?
 
     np.random.seed(seed)
     random_state = np.random.RandomState(seed)
@@ -369,6 +381,10 @@ def main(argv):
 
     hoppy = BatchHoppy(model=encoder_model, k=k_max, depth=max_depth, tnorm_name=tnorm_name,
                        hops_lst=hops_lst, R=gntp_R, reinforce_module=reinforce_module).to(device)
+
+    # Tell wandb to watch the module
+    if use_wandb:
+        wandb.watch(hoppy)
 
     def scoring_function(instances_batch: List[Instance],
                          relation_lst: List[str],
@@ -490,6 +506,8 @@ def main(argv):
                            relation_to_predicate=relation_to_predicate if is_predicate else None,
                            is_debug=is_debug)
             logger.info(f'Test Accuracy on {path}: {res:.6f}')
+            if use_wandb:
+                wandb.log({path: 0, "test_accuracy": res})
         return res
 
     loss_function = nn.BCELoss()
@@ -606,6 +624,8 @@ def main(argv):
 
         slope = kernel.slope.item() if isinstance(kernel.slope, Tensor) else kernel.slope
         logger.info(f'Epoch {epoch_no}/{nb_epochs}\tLoss {loss_mean:.4f} ± {loss_std:.4f}\tSlope {slope:.4f}')
+        if use_wandb:
+            wandb.log({"epoch": epoch_no, "loss_mean": loss_mean, "loss_std": loss_std})
 
     # Now train the selection module
     if use_rl:
@@ -678,6 +698,8 @@ def main(argv):
 
             slope = kernel.slope.item() if isinstance(kernel.slope, Tensor) else kernel.slope
             logger.info(f'Epoch {epoch_no}/{rl_nb_epochs}\tLoss {loss_mean:.4f} ± {loss_std:.4f}\tSlope {slope:.4f}')
+            if use_wandb:
+                wandb.log({"epoch": epoch_no, "rl_loss_mean": loss_mean, "rl_loss_std": loss_std})
 
         # Switch reinforce module to test mode
         reinforce_module.mode = 'test'
