@@ -224,6 +224,7 @@ def main(argv):
     argparser.add_argument('--rl-learning-rate', '-rll', action='store', type=float, default=0.01)  # Learning rate
     argparser.add_argument('--rl-actions-selected', action='store', type=int, default=3)  # Number of actions to select
     argparser.add_argument('--rl-epochs', '-re', action='store', type=int, default=1)  # Epochs for RL
+    argparser.add_argument('--rl-gradient-clip', '-rlgc', action='store', type=float, default=0.5)  # Gradient clip
 
     # Wandb arguments
     argparser.add_argument('--use-wandb', action='store_true', default=False)  # Use Weights and Biases
@@ -287,6 +288,7 @@ def main(argv):
     rl_learning_rate = args.rl_learning_rate
     rl_actions_selected = args.rl_actions_selected
     rl_nb_epochs = args.rl_epochs
+    rl_gradient_clip = args.rl_gradient_clip
 
     use_wandb = args.use_wandb
 
@@ -346,7 +348,12 @@ def main(argv):
     memory: Dict[int, MemoryReformulator.Memory] = {}
 
     reinforce_module = ReinforceModule(n_reformulators=len(hops_str), embedding_size=embedding_size,
-                                       n_actions_selected=rl_actions_selected, lr=rl_learning_rate, use_rl=use_rl)
+                                       n_actions_selected=rl_actions_selected, lr=rl_learning_rate,
+                                       gradient_clip=rl_gradient_clip, use_rl=use_rl)
+
+    # Tell wandb to watch the policy estimator network
+    if use_wandb:
+        wandb.watch(reinforce_module.policy_estimator.network)
 
     def make_hop(s: str) -> Tuple[BaseReformulator, bool]:
         nonlocal memory

@@ -32,12 +32,14 @@ class PolicyEstimator:
 
 
 class ReinforceModule:
-    def __init__(self, n_reformulators, embedding_size, n_actions_selected, lr, use_rl):
+    def __init__(self, n_reformulators: int, embedding_size: int, n_actions_selected: int, lr: float,
+                 gradient_clip: float, use_rl: bool):
         self.env = CTPEnv(n_reformulators=n_reformulators, embedding_size=embedding_size)
         self.policy_estimator = PolicyEstimator(self.env)
         self.optimizer = optim.Adam(self.policy_estimator.network.parameters(), lr=lr)
         self.n_actions_selected = n_actions_selected
         self.mode = 'train'  # 'train' or 'test'
+        self.gradient_clip = gradient_clip
         self.use_rl = use_rl
 
     # Call to get action
@@ -61,18 +63,6 @@ class ReinforceModule:
                 actions[i] = np.random.choice(a=self.env.action_space, size=self.n_actions_selected,
                                               replace=True, p=action_probs[i])
 
-                # # Add a small probability to each action prob
-                # max_index = np.argmax(action_probs[i])
-                # shift_amount = 0.00001 / len(self.env.action_space)
-                # for j in range(len(action_probs[i])):
-                #     if j == max_index:
-                #         action_probs[i][j] -= 0.001
-                #     else:
-                #         action_probs[i][j] += shift_amount
-                # # Calculate actions again with new probabilities
-                # actions[i] = np.random.choice(a=self.env.action_space, size=self.n_actions_selected,
-                #                               replace=False, p=action_probs[i])
-
                 for action in np.unique(actions[i]):
                     action_counts[action] += 1
         return actions, action_counts
@@ -89,5 +79,9 @@ class ReinforceModule:
 
         # Calculate gradients
         loss.backward(retain_graph=True)  # retain_graph slows it down a lot, but seems necessary to not discard tensors
+
+        # Clip gradients
+        torch.nn.utils.clip_grad_norm_(self.policy_estimator.network.parameters(), self.gradient_clip)
+
         # Apply gradients
         self.optimizer.step()
