@@ -294,7 +294,6 @@ def main(argv):
     if use_wandb:
         wandb.init(project='ctp', entity='mmorris44')
         config = wandb.config
-        config.learning_rate = learning_rate  # Do I need the rest?
 
     np.random.seed(seed)
     random_state = np.random.RandomState(seed)

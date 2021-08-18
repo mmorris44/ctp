@@ -22,10 +22,9 @@ class PolicyEstimator:
         # Define network
         self.network = nn.Sequential(
             nn.Linear(self.n_inputs, 30),  # Used to be 16
-            #nn.ReLU(),  # NaN from Softmax function when using this
-            nn.Sigmoid(),
+            nn.ReLU(),
             nn.Linear(30, self.n_outputs),
-            nn.Softmax(dim=-1))
+            nn.LogSoftmax(dim=-1))
 
     def predict(self, state: torch.FloatTensor):
         action_probs = self.network(state)
@@ -47,13 +46,35 @@ class ReinforceModule:
         batch_size = state.shape[0]
         action_counts = [0] * len(self.env.action_space)  # Count the number of times each action is selected
 
-        action_probs = self.policy_estimator.predict(state).detach().cpu().numpy()
+        prediction = self.policy_estimator.predict(state)
+        action_probs = torch.exp(prediction).detach().cpu().numpy()
         actions = np.zeros(shape=(action_probs.shape[0], self.n_actions_selected), dtype=int)
         for i in range(batch_size):
-            actions[i] = np.random.choice(a=self.env.action_space, size=self.n_actions_selected,
-                                          replace=False, p=action_probs[i])
-            for action in actions[i]:
-                action_counts[action] += 1
+            try:
+                actions[i] = np.random.choice(a=self.env.action_space, size=self.n_actions_selected,
+                                              replace=False, p=action_probs[i])
+                for action in actions[i]:
+                    action_counts[action] += 1
+            except ValueError as error:  # ValueError: Fewer non-zero entries in p than size
+                print("Confident action distribution found:", action_probs[i], " | ", error)
+                # Sample again but with replacement
+                actions[i] = np.random.choice(a=self.env.action_space, size=self.n_actions_selected,
+                                              replace=True, p=action_probs[i])
+
+                # # Add a small probability to each action prob
+                # max_index = np.argmax(action_probs[i])
+                # shift_amount = 0.00001 / len(self.env.action_space)
+                # for j in range(len(action_probs[i])):
+                #     if j == max_index:
+                #         action_probs[i][j] -= 0.001
+                #     else:
+                #         action_probs[i][j] += shift_amount
+                # # Calculate actions again with new probabilities
+                # actions[i] = np.random.choice(a=self.env.action_space, size=self.n_actions_selected,
+                #                               replace=False, p=action_probs[i])
+
+                for action in np.unique(actions[i]):
+                    action_counts[action] += 1
         return actions, action_counts
 
     # When reward is known, update the policy network
@@ -62,7 +83,7 @@ class ReinforceModule:
         self.optimizer.zero_grad()
 
         # Calculate loss
-        logprob = torch.log(self.policy_estimator.predict(state))
+        logprob = self.policy_estimator.predict(state)
         selected_logprobs = reward * torch.gather(logprob, 1, action.unsqueeze(1)).squeeze()
         loss = -selected_logprobs.mean()
 
