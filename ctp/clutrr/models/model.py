@@ -838,7 +838,7 @@ class BatchHoppy(nn.Module):
         res_sp, res_po = None, None
         for d in range(depth + 1):
             if self.reinforce_module.use_rl:
-                scores_sp, scores_po = self.depth_r_forward_tensor_op(rel, arg1, arg2, facts, nb_facts,
+                scores_sp, scores_po = self.depth_r_forward_select_first_element(rel, arg1, arg2, facts, nb_facts,
                                                                       entity_embeddings, nb_entities, depth=d)
             else:
                 scores_sp, scores_po = self.depth_r_forward(rel, arg1, arg2, facts, nb_facts,
