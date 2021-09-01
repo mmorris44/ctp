@@ -123,7 +123,7 @@ class BatchHoppy(nn.Module):
         res = None
         for d in range(depth + 1):  # Check up to max depth
             if self.reinforce_module.use_rl:
-                scores = self.depth_r_score_select_tensor_op(
+                scores = self.depth_r_score_select_first_element(
                     rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=d)
             else:
                 scores = self.depth_r_score(
@@ -847,7 +847,7 @@ class BatchHoppy(nn.Module):
             res_po = scores_po if res_po is None else torch.max(res_po, scores_po)
         return res_sp, res_po
 
-    def depth_r_forward_tensor_op(self,
+    def depth_r_forward_select_tensor_op(self,
                                   rel: Tensor, arg1: Optional[Tensor], arg2: Optional[Tensor],
                                   facts: List[Tensor],
                                   nb_facts: Tensor,
