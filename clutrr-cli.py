@@ -225,6 +225,9 @@ def main(argv):
     argparser.add_argument('--rl-actions-selected', action='store', type=int, default=3)  # Number of actions to select
     argparser.add_argument('--rl-epochs', '-re', action='store', type=int, default=1)  # Epochs for RL
 
+    # Use subset of reformulators
+    argparser.add_argument('--subset', type=str, default=None)  # List of reformulator idx's to use (from 0 to n-1)
+
     # Wandb arguments
     argparser.add_argument('--use-wandb', action='store_true', default=False)  # Use Weights and Biases
 
@@ -287,6 +290,8 @@ def main(argv):
     rl_learning_rate = args.rl_learning_rate
     rl_actions_selected = args.rl_actions_selected
     rl_nb_epochs = args.rl_epochs
+
+    reformulator_subset = None
 
     use_wandb = args.use_wandb
 
@@ -711,6 +716,9 @@ def main(argv):
 
         # Switch reinforce module to test mode
         reinforce_module.mode = 'test'
+
+    # Switch to using subsets for evaluation, if enabled
+    reinforce_module.reformulator_subset = list(map(int, args.subset.split(' '))) if args.subset is not None else None
 
     start = time.time()
 

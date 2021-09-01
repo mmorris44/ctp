@@ -123,7 +123,10 @@ class BatchHoppy(nn.Module):
         res = None
         for d in range(depth + 1):  # Check up to max depth
             if self.reinforce_module.use_rl:
-                scores = self.depth_r_score_select_first_element(
+                scores = self.depth_r_score_select_tensor_op(
+                    rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=d)
+            elif self.reinforce_module.reformulator_subset is not None:
+                scores = self.depth_r_score_reformulator_subset(
                     rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=d)
             else:
                 scores = self.depth_r_score(
@@ -695,6 +698,134 @@ class BatchHoppy(nn.Module):
 
         return global_res
 
+    # Get score using subset of reformulators
+    def depth_r_score_reformulator_subset(self,
+                      rel: Tensor, arg1: Tensor, arg2: Tensor,  # Predicate, first entity, second entity
+                      facts: List[Tensor],  # List of lists of facts (different facts for each batch)
+                      nb_facts: Tensor,  # Number of facts for each example in the batch
+                      entity_embeddings: Tensor,  # Entity embeddings
+                      nb_entities: Tensor,  # Number of entities
+                      depth: int) -> Tensor:  # How many more steps down before calling to KB
+        assert depth >= 0
+
+        if depth == 0:  # If depth reached, call to neural KB for score
+            return self.model.score(rel, arg1, arg2,
+                                    facts=facts, nb_facts=nb_facts,
+                                    entity_embeddings=entity_embeddings, nb_entities=nb_entities)
+
+        batch_size, embedding_size = rel.shape[0], rel.shape[1]
+        global_res = None
+
+        mask = None
+
+        new_hops_lst = self.hops_lst
+
+        if self.R is not None:  # If GNTP reformulators included? ---> IGNORE THIS BLOCK OF CODE
+            batch_rules_scores = torch.cat([h.prior(rel).view(-1, 1) for h, _ in self.hops_lst], 1)
+            topk, indices = torch.topk(batch_rules_scores, self.R)
+
+            # [R x E]
+            rule_heads = torch.cat([h.head for h, _ in self.hops_lst], dim=0)
+            rule_body1s = torch.cat([h.memory_lst[0] for h, _ in self.hops_lst], dim=0)
+            rule_body2s = torch.cat([h.memory_lst[1] for h, _ in self.hops_lst], dim=0)
+
+            kernel = self.hops_lst[0][0].kernel
+            new_rule_heads = F.embedding(indices, rule_heads)
+            new_rule_body1s = F.embedding(indices, rule_body1s)
+            new_rule_body2s = F.embedding(indices, rule_body2s)
+
+            # print(new_rule_heads.shape[1], self.R)
+            assert new_rule_heads.shape[1] == self.R
+
+            new_hops_lst = []
+            for i in range(new_rule_heads.shape[1]):
+                r = GNTPReformulator(kernel=kernel, head=new_rule_heads[:, i, :],  # Generates hops from relation?
+                                     body=[new_rule_body1s[:, i, :], new_rule_body2s[:, i, :]])
+                new_hops_lst += [(r, False)]
+
+        # Iterate through reformulators (hops_generator is reformulator)
+        # is_reversed decides if the next sub-goal is in the form p(a, X) or p(X, a)
+        for rule_idx, (hops_generator, is_reversed) in enumerate(new_hops_lst):
+            if rule_idx not in self.reinforce_module.reformulator_subset:  # Skip reformulators not in subset
+                continue
+            sources, scores = arg1, None
+
+            # XXX - IGNORE THIS FOR NOW
+            prior = hops_generator.prior(rel)
+            if prior is not None:  # Get a prior on the scores
+
+                if mask is not None:
+                    prior = prior * mask[:, rule_idx]
+                    if (prior != 0.0).sum() == 0:
+                        continue
+
+                scores = prior
+
+            hop_rel_lst = hops_generator(rel)  # Generate hops from relation (using the reformulator)
+            nb_hops = len(hop_rel_lst)
+
+            # For each hop in the hops to consider for the relation
+            for hop_idx, hop_rel in enumerate(hop_rel_lst, start=1):
+                # [B * S, E]
+                sources_2d = sources.view(-1, embedding_size)
+                nb_sources = sources_2d.shape[0]
+
+                nb_branches = nb_sources // batch_size
+
+                hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
+                hop_rel_2d = hop_rel_3d.view(-1, embedding_size)
+
+                if hop_idx < nb_hops:  # Scores are T-normed in one by one
+                    # [B * S, K], [B * S, K, E]
+                    if is_reversed:
+                        z_scores, z_emb = self.r_hop(hop_rel_2d, None, sources_2d,
+                                                     facts, nb_facts, entity_embeddings, nb_entities,
+                                                     depth=depth - 1)
+                    else:
+                        z_scores, z_emb = self.r_hop(hop_rel_2d, sources_2d, None,
+                                                     facts, nb_facts, entity_embeddings, nb_entities,
+                                                     depth=depth - 1)
+                    k = z_emb.shape[1]
+
+                    # [B * S * K]
+                    z_scores_1d = z_scores.view(-1)
+                    # [B * S * K, E]
+                    z_emb_2d = z_emb.view(-1, embedding_size)
+
+                    # [B * S * K, E]
+                    sources = z_emb_2d
+                    # [B * S * K]
+                    scores = z_scores_1d if scores is None \
+                        else self._tnorm(z_scores_1d, scores.view(-1, 1).repeat(1, k).view(-1))
+                else:  # Final hop
+                    # [B, S, E]
+                    arg2_3d = arg2.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
+                    # [B * S, E]
+                    arg2_2d = arg2_3d.view(-1, embedding_size)
+
+                    # [B * S]
+                    if is_reversed:
+                        z_scores_1d = self.r_score(hop_rel_2d, arg2_2d, sources_2d,
+                                                   facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                    else:
+                        z_scores_1d = self.r_score(hop_rel_2d, sources_2d, arg2_2d,
+                                                   facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+
+                    scores = z_scores_1d if scores is None else self._tnorm(z_scores_1d, scores)
+
+            if scores is not None:
+                scores_2d = scores.view(batch_size, -1)
+                res, _ = torch.max(scores_2d, dim=1)
+            else:
+                res = self.model.score(rel, arg1, arg2,
+                                       facts=facts, nb_facts=nb_facts,
+                                       entity_embeddings=entity_embeddings, nb_entities=nb_entities)
+
+            # Maximize score across reformulators
+            global_res = res if global_res is None else torch.max(global_res, res)
+
+        return global_res
+
     # Get score of relation for given depth
     def depth_r_score(self,
                       rel: Tensor, arg1: Tensor, arg2: Tensor,  # Predicate, first entity, second entity
@@ -838,8 +969,11 @@ class BatchHoppy(nn.Module):
         res_sp, res_po = None, None
         for d in range(depth + 1):
             if self.reinforce_module.use_rl:
-                scores_sp, scores_po = self.depth_r_forward_select_first_element(rel, arg1, arg2, facts, nb_facts,
+                scores_sp, scores_po = self.depth_r_forward_select_tensor_op(rel, arg1, arg2, facts, nb_facts,
                                                                       entity_embeddings, nb_entities, depth=d)
+            elif self.reinforce_module.reformulator_subset is not None:
+                scores_sp, scores_po = self.depth_r_forward_reformulator_subset(
+                    rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=d)
             else:
                 scores_sp, scores_po = self.depth_r_forward(rel, arg1, arg2, facts, nb_facts,
                                                             entity_embeddings, nb_entities, depth=d)
@@ -1261,6 +1395,186 @@ class BatchHoppy(nn.Module):
                     action_batch: Tensor = torch.tensor([action]).expand(batch_size)
                     reward_batch, _ = torch.max(scores_po, dim=1)  # Max reward across entities
                     self.reinforce_module.apply_reward(state_batch, action_batch, reward_batch)
+
+        if global_scores_sp is None and global_scores_po is None:
+            global_scores_sp, global_scores_po = self.model.forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities)
+
+        return global_scores_sp, global_scores_po
+
+    def depth_r_forward_reformulator_subset(self,
+                        rel: Tensor, arg1: Optional[Tensor], arg2: Optional[Tensor],
+                        facts: List[Tensor],
+                        nb_facts: Tensor,
+                        entity_embeddings: Tensor,
+                        nb_entities: Tensor,
+                        depth: int) -> Tuple[Optional[Tensor], Optional[Tensor]]:
+        batch_size, embedding_size = rel.shape[0], rel.shape[1]
+
+        if depth == 0:
+            return self.model.forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities)
+
+        global_scores_sp = global_scores_po = None
+
+        mask = None
+        new_hops_lst = self.hops_lst
+
+        if self.R is not None:
+            batch_rules_scores = torch.cat([h.prior(rel).view(-1, 1) for h, _ in self.hops_lst], 1)
+            topk, indices = torch.topk(batch_rules_scores, self.R)
+
+            # [R x E]
+            rule_heads = torch.cat([h.head for h, _ in self.hops_lst], dim=0)
+            rule_body1s = torch.cat([h.memory_lst[0] for h, _ in self.hops_lst], dim=0)
+            rule_body2s = torch.cat([h.memory_lst[1] for h, _ in self.hops_lst], dim=0)
+
+            kernel = self.hops_lst[0][0].kernel
+            new_rule_heads = F.embedding(indices, rule_heads)
+            new_rule_body1s = F.embedding(indices, rule_body1s)
+            new_rule_body2s = F.embedding(indices, rule_body2s)
+
+            assert new_rule_heads.shape[1] == self.R
+
+            new_hops_lst = []
+            for i in range(new_rule_heads.shape[1]):
+                r = GNTPReformulator(kernel=kernel, head=new_rule_heads[:, i, :],
+                                     body=[new_rule_body1s[:, i, :], new_rule_body2s[:, i, :]])
+                new_hops_lst += [(r, False)]
+
+        for rule_idx, (hop_generators, is_reversed) in enumerate(new_hops_lst):
+            if rule_idx not in self.reinforce_module.reformulator_subset:  # Skip reformulators not in subset
+                continue
+            scores_sp = scores_po = None
+            hop_rel_lst = hop_generators(rel)
+            nb_hops = len(hop_rel_lst)
+
+            if arg1 is not None:
+                sources, scores = arg1, None
+
+                # XXX
+                prior = hop_generators.prior(rel)
+                if prior is not None:
+
+                    if mask is not None:
+                        prior = prior * mask[:, rule_idx]
+                        if (prior != 0.0).sum() == 0:
+                            continue
+
+                    scores = prior
+
+                for hop_idx, hop_rel in enumerate(hop_rel_lst, start=1):
+                    # [B * S, E]
+                    sources_2d = sources.view(-1, embedding_size)
+                    nb_sources = sources_2d.shape[0]
+
+                    nb_branches = nb_sources // batch_size
+
+                    hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
+                    hop_rel_2d = hop_rel_3d.view(-1, embedding_size)
+
+                    if hop_idx < nb_hops:
+                        # [B * S, K], [B * S, K, E]
+                        if is_reversed:
+                            z_scores, z_emb = self.r_hop(hop_rel_2d, None, sources_2d,
+                                                         facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        else:
+                            z_scores, z_emb = self.r_hop(hop_rel_2d, sources_2d, None,
+                                                         facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        k = z_emb.shape[1]
+
+                        # [B * S * K]
+                        z_scores_1d = z_scores.view(-1)
+                        # [B * S * K, E]
+                        z_emb_2d = z_emb.view(-1, embedding_size)
+
+                        # [B * S * K, E]
+                        sources = z_emb_2d
+                        # [B * S * K]
+                        scores = z_scores_1d if scores is None \
+                            else self._tnorm(z_scores_1d, scores.view(-1, 1).repeat(1, k).view(-1))
+                    else:
+                        # [B * S, N]
+                        if is_reversed:
+                            _, scores_sp = self.r_forward(hop_rel_2d, None, sources_2d,
+                                                          facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        else:
+                            scores_sp, _ = self.r_forward(hop_rel_2d, sources_2d, None,
+                                                          facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+
+                        nb_entities_ = scores_sp.shape[1]
+
+                        if scores is not None:
+                            scores = scores.view(-1, 1).repeat(1, nb_entities_)
+                            scores_sp = self._tnorm(scores, scores_sp)
+
+                            # [B, S, N]
+                            scores_sp = scores_sp.view(batch_size, -1, nb_entities_)
+                            # [B, N]
+                            scores_sp, _ = torch.max(scores_sp, dim=1)
+
+            if arg2 is not None:
+                sources, scores = arg2, None
+
+                # XXX
+                prior = hop_generators.prior(rel)
+                if prior is not None:
+                    scores = prior
+                # scores = hop_generators.prior(rel)
+
+                for hop_idx, hop_rel in enumerate(reversed([h for h in hop_rel_lst]), start=1):
+                    # [B * S, E]
+                    sources_2d = sources.view(-1, embedding_size)
+                    nb_sources = sources_2d.shape[0]
+
+                    nb_branches = nb_sources // batch_size
+
+                    hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
+                    hop_rel_2d = hop_rel_3d.view(-1, embedding_size)
+
+                    if hop_idx < nb_hops:
+                        # [B * S, K], [B * S, K, E]
+                        if is_reversed:
+                            z_scores, z_emb = self.r_hop(hop_rel_2d, sources_2d, None,
+                                                         facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        else:
+                            z_scores, z_emb = self.r_hop(hop_rel_2d, None, sources_2d,
+                                                         facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        k = z_emb.shape[1]
+
+                        # [B * S * K]
+                        z_scores_1d = z_scores.view(-1)
+                        # [B * S * K, E]
+                        z_emb_2d = z_emb.view(-1, embedding_size)
+
+                        # [B * S * K, E]
+                        sources = z_emb_2d
+                        # [B * S * K]
+                        scores = z_scores_1d if scores is None \
+                            else self._tnorm(z_scores_1d, scores.view(-1, 1).repeat(1, k).view(-1))
+                    else:
+                        # [B * S, N]
+                        if is_reversed:
+                            scores_po, _ = self.r_forward(hop_rel_2d, sources_2d, None,
+                                                          facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        else:
+                            _, scores_po = self.r_forward(hop_rel_2d, None, sources_2d,
+                                                          facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+
+                        nb_entities_ = scores_po.shape[1]
+
+                        if scores is not None:
+                            scores = scores.view(-1, 1).repeat(1, nb_entities_)
+                            scores_po = self._tnorm(scores, scores_po)
+
+                            # [B, S, N]
+                            scores_po = scores_po.view(batch_size, -1, nb_entities_)
+                            # [B, N]
+                            scores_po, _ = torch.max(scores_po, dim=1)
+
+            if scores_sp is None and scores_po is None:
+                scores_sp, scores_po = self.model.forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities)
+
+            global_scores_sp = scores_sp if global_scores_sp is None else torch.max(global_scores_sp, scores_sp)
+            global_scores_po = scores_po if global_scores_po is None else torch.max(global_scores_po, scores_po)
 
         if global_scores_sp is None and global_scores_po is None:
             global_scores_sp, global_scores_po = self.model.forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities)

@@ -32,13 +32,15 @@ class PolicyEstimator:
 
 
 class ReinforceModule:
-    def __init__(self, n_reformulators, embedding_size, n_actions_selected, lr, use_rl):
+    def __init__(self, n_reformulators, embedding_size, n_actions_selected, lr, use_rl,
+                 reformulator_subset=None):
         self.env = CTPEnv(n_reformulators=n_reformulators, embedding_size=embedding_size)
         self.policy_estimator = PolicyEstimator(self.env)
         self.optimizer = optim.Adam(self.policy_estimator.network.parameters(), lr=lr)
         self.n_actions_selected = n_actions_selected
         self.mode = 'train'  # 'train' or 'test'
         self.use_rl = use_rl
+        self.reformulator_subset = reformulator_subset  # Subset of reformulators to use (if not None)
 
     # Call to get action
     # Argument is a batch of states
